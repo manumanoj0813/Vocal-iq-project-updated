@@ -18,6 +18,8 @@ import io
 from voice_analyzer import VoiceAnalyzer
 from enhanced_analyzer import EnhancedAnalyzer
 from accuracy_validator import AccuracyValidator
+from fast_voice_analyzer import FastVoiceAnalyzer
+from model_cache import model_cache, get_cached_model
 from export_utils import DataExporter, ChartGenerator
 from pdf_generator import VoiceAnalysisPDFGenerator
 from database import (
@@ -195,6 +197,7 @@ async def test_analyzer_endpoint():
 # Lazy-initialized singletons
 voice_analyzer = None
 enhanced_analyzer = EnhancedAnalyzer()
+fast_voice_analyzer = FastVoiceAnalyzer()
 data_exporter = DataExporter()
 chart_generator = ChartGenerator()
 pdf_generator = VoiceAnalysisPDFGenerator()
@@ -1038,6 +1041,95 @@ async def get_accuracy_summary():
     except Exception as e:
         logger.error(f"Accuracy summary error: {e}")
         raise HTTPException(status_code=500, detail=f"Accuracy summary failed: {str(e)}")
+
+@app.post("/fast-analyze-audio")
+async def fast_analyze_audio_endpoint(
+    file: UploadFile = File(...),
+    session_type: str = Form("practice"),
+    topic: str = Form("general")
+):
+    """Ultra-fast audio analysis optimized for speed"""
+    temp_file_path = None
+    try:
+        logger.info(f"Starting fast analysis for session: {session_type}, topic: {topic}")
+        
+        # Validate file
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="No file provided")
+        
+        if not file.filename.lower().endswith(('.wav', '.mp3', '.webm', '.m4a', '.ogg')):
+            raise HTTPException(status_code=400, detail="Unsupported audio format")
+        
+        # Save uploaded file temporarily
+        temp_file_path = f"temp_audio_{int(time.time())}_{file.filename}"
+        with open(temp_file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        logger.info(f"File saved temporarily: {temp_file_path}")
+        
+        # Fast analysis
+        start_time = time.time()
+        result = await fast_voice_analyzer.analyze_audio_fast(temp_file_path)
+        analysis_time = time.time() - start_time
+        
+        # Add performance metrics
+        result["performance"] = {
+            "analysis_time_seconds": analysis_time,
+            "mode": "fast",
+            "optimizations": ["parallel_processing", "reduced_quality", "simplified_algorithms"]
+        }
+        
+        logger.info(f"Fast analysis completed in {analysis_time:.2f} seconds")
+        
+        return {
+            "status": "success",
+            "message": "Fast audio analysis completed",
+            "data": result,
+            "session_type": session_type,
+            "topic": topic
+        }
+        
+    except Exception as e:
+        logger.error(f"Fast analysis error: {e}")
+        return {
+            "status": "error",
+            "message": f"Fast analysis failed: {str(e)}",
+            "data": None
+        }
+    finally:
+        # Clean up temporary file
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.unlink(temp_file_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete temp file {temp_file_path}: {str(e)}")
+
+@app.get("/cache-stats")
+async def get_cache_stats():
+    """Get model cache statistics"""
+    try:
+        stats = model_cache.get_cache_stats()
+        return {
+            "status": "success",
+            "cache_stats": stats
+        }
+    except Exception as e:
+        logger.error(f"Cache stats error: {e}")
+        raise HTTPException(status_code=500, detail=f"Cache stats failed: {str(e)}")
+
+@app.post("/clear-cache")
+async def clear_model_cache():
+    """Clear model cache"""
+    try:
+        model_cache.clear_cache()
+        return {
+            "status": "success",
+            "message": "Model cache cleared successfully"
+        }
+    except Exception as e:
+        logger.error(f"Clear cache error: {e}")
+        raise HTTPException(status_code=500, detail=f"Clear cache failed: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

@@ -110,12 +110,13 @@ class VoiceAnalyzer:
                 duration = librosa.get_duration(y=y, sr=sr)
                 logger.info(f"Audio duration: {duration} seconds")
                 
-                # Enhanced analysis with better algorithms
-                pitch_data = self._analyze_pitch_enhanced(y_processed, sr)
-                rhythm_data = self._analyze_rhythm_enhanced(y_processed, sr)
-                clarity_data = self._analyze_clarity_enhanced(y_processed, sr)
-                emotion_data = self._analyze_emotion_enhanced(y_processed, sr)
-                fluency_data = self._analyze_fluency_enhanced(y_processed, sr)
+                # Parallel analysis for maximum speed
+                analysis_results = await self._parallel_analysis_enhanced(y_processed, sr)
+                pitch_data = analysis_results["pitch"]
+                rhythm_data = analysis_results["rhythm"]
+                clarity_data = analysis_results["clarity"]
+                emotion_data = analysis_results["emotion"]
+                fluency_data = analysis_results["fluency"]
                 
                 # Transcribe audio with enhanced settings
                 logger.info("Starting enhanced transcription...")
@@ -217,62 +218,53 @@ class VoiceAnalyzer:
             raise RuntimeError(f"Audio analysis failed: {str(e)}")
     
     def _preprocess_audio(self, y: np.ndarray, sr: int) -> np.ndarray:
-        """Ultra-optimized audio preprocessing for maximum accuracy and performance."""
+        """Ultra-fast audio preprocessing optimized for speed."""
         try:
-            # Step 1: Remove DC offset and normalize
+            # Step 1: Fast DC offset removal and normalization
             y = y - np.mean(y)
             y = librosa.util.normalize(y)
             
-            # Step 2: Optimized filtering pipeline (reduced order for efficiency)
-            # High-pass filter for low-frequency noise removal (4th order for speed)
-            b_high, a_high = signal.butter(4, 80/(sr/2), btype='high')
+            # Step 2: Minimal filtering for speed (2nd order filters)
+            # High-pass filter (2nd order for maximum speed)
+            b_high, a_high = signal.butter(2, 80/(sr/2), btype='high')
             y = signal.filtfilt(b_high, a_high, y)
             
-            # Low-pass filter for anti-aliasing (4th order for speed)
-            b_low, a_low = signal.butter(4, 8000/(sr/2), btype='low')
+            # Low-pass filter (2nd order for maximum speed)
+            b_low, a_low = signal.butter(2, 8000/(sr/2), btype='low')
             y = signal.filtfilt(b_low, a_low, y)
             
-            # Step 3: Optimized noise reduction using spectral subtraction
-            stft = librosa.stft(y, n_fft=self.n_fft, hop_length=self.hop_length)
-            magnitude = np.abs(stft)
-            phase = np.angle(stft)
+            # Step 3: Skip complex noise reduction for speed
+            # Only basic spectral subtraction if signal is very noisy
+            if np.std(y) > 0.1:  # Only if signal appears noisy
+                stft = librosa.stft(y, n_fft=self.n_fft, hop_length=self.hop_length)
+                magnitude = np.abs(stft)
+                phase = np.angle(stft)
+                
+                # Quick noise estimation
+                noise_frames = max(1, int(0.1 * sr / self.hop_length))  # Reduced time
+                noise_spectrum = np.mean(magnitude[:, :noise_frames], axis=1, keepdims=True)
+                
+                # Simple spectral subtraction
+                alpha = 1.5  # Reduced factor for speed
+                cleaned_magnitude = magnitude - alpha * noise_spectrum
+                cleaned_magnitude = np.maximum(cleaned_magnitude, 0.01 * magnitude)
+                
+                # Reconstruct signal
+                cleaned_stft = cleaned_magnitude * np.exp(1j * phase)
+                y = librosa.istft(cleaned_stft, hop_length=self.hop_length)
             
-            # Efficient noise estimation from first 0.2 seconds
-            noise_frames = max(1, int(0.2 * sr / self.hop_length))
-            noise_spectrum = np.mean(magnitude[:, :noise_frames], axis=1, keepdims=True)
+            # Step 4: Fast normalization
+            y = librosa.util.normalize(y)
             
-            # Optimized spectral subtraction with adaptive parameters
-            alpha = self.noise_reduction_factor
-            beta = self.spectral_floor
+            # Step 5: Skip compression for speed
+            # Only basic quality check
+            if len(y) < sr * 0.05:  # Less than 0.05 seconds
+                logger.warning("Audio very short for analysis")
+            elif np.std(y) < 0.001:  # Very low variance
+                logger.warning("Audio may be silent")
             
-            # Apply spectral subtraction with vectorized operations
-            cleaned_magnitude = magnitude - alpha * noise_spectrum
-            cleaned_magnitude = np.maximum(cleaned_magnitude, beta * magnitude)
-            
-            # Efficient spectral smoothing using vectorized operations
-            from scipy.ndimage import gaussian_filter1d
-            cleaned_magnitude = gaussian_filter1d(cleaned_magnitude, sigma=0.5, axis=1)
-            
-            # Reconstruct signal with phase preservation
-            cleaned_stft = cleaned_magnitude * np.exp(1j * phase)
-            y_cleaned = librosa.istft(cleaned_stft, hop_length=self.hop_length)
-            
-            # Step 4: Optimized normalization and quality enhancement
-            y_cleaned = librosa.util.normalize(y_cleaned)
-            
-            # Step 5: Adaptive compression based on signal characteristics
-            max_val = np.max(np.abs(y_cleaned))
-            if max_val > 0:
-                y_cleaned = np.tanh(y_cleaned * 0.9) * 0.95  # Optimized compression
-            
-            # Step 6: Quality validation
-            if len(y_cleaned) < sr * 0.1:  # Less than 0.1 seconds
-                logger.warning("Audio too short for reliable analysis")
-            elif np.std(y_cleaned) < 0.001:  # Very low variance
-                logger.warning("Audio has very low variance, may be silent")
-            
-            logger.info("Optimized audio preprocessing completed successfully")
-            return y_cleaned
+            logger.info("Fast audio preprocessing completed")
+            return y
             
         except Exception as e:
             logger.warning(f"Advanced audio preprocessing failed: {e}, using basic preprocessing")
@@ -780,6 +772,47 @@ class VoiceAnalyzer:
                 "energy_stability": 0.6,
                 "avg_pitch": 200.0,
                 "avg_energy": 0.06
+            }
+    
+    async def _parallel_analysis_enhanced(self, y: np.ndarray, sr: int) -> Dict:
+        """Run enhanced analysis components in parallel for maximum speed"""
+        try:
+            import asyncio
+            from concurrent.futures import ThreadPoolExecutor
+            
+            # Create thread pool for parallel execution
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                # Submit all analysis tasks in parallel
+                loop = asyncio.get_event_loop()
+                
+                pitch_task = loop.run_in_executor(executor, self._analyze_pitch_enhanced, y, sr)
+                emotion_task = loop.run_in_executor(executor, self._analyze_emotion_enhanced, y, sr)
+                clarity_task = loop.run_in_executor(executor, self._analyze_clarity_enhanced, y, sr)
+                rhythm_task = loop.run_in_executor(executor, self._analyze_rhythm_enhanced, y, sr)
+                fluency_task = loop.run_in_executor(executor, self._analyze_fluency_enhanced, y, sr)
+                
+                # Wait for all tasks to complete
+                pitch_data, emotion_data, clarity_data, rhythm_data, fluency_data = await asyncio.gather(
+                    pitch_task, emotion_task, clarity_task, rhythm_task, fluency_task
+                )
+            
+            return {
+                "pitch": pitch_data,
+                "emotion": emotion_data,
+                "clarity": clarity_data,
+                "rhythm": rhythm_data,
+                "fluency": fluency_data
+            }
+            
+        except Exception as e:
+            logger.error(f"Parallel analysis failed: {e}")
+            # Fallback to sequential analysis
+            return {
+                "pitch": self._analyze_pitch_enhanced(y, sr),
+                "emotion": self._analyze_emotion_enhanced(y, sr),
+                "clarity": self._analyze_clarity_enhanced(y, sr),
+                "rhythm": self._analyze_rhythm_enhanced(y, sr),
+                "fluency": self._analyze_fluency_enhanced(y, sr)
             }
     
     def _analyze_fluency_enhanced(self, y: np.ndarray, sr: int) -> Dict:
